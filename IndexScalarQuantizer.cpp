@@ -11,7 +11,9 @@
 #include <cstdio>
 #include <algorithm>
 
-#include <omp.h>
+#ifdef _OPENMP
+#   include <omp.h>
+#endif
 
 #include <immintrin.h>
 
@@ -853,8 +855,14 @@ void IndexIVFScalarQuantizer::add_with_ids
 #pragma omp parallel reduction(+: nadd)
     {
         std::vector<float> residual (d);
+
+#ifdef _OPENMP
         int nt = omp_get_num_threads();
         int rank = omp_get_thread_num();
+#else
+        int nt = 1;
+        int rank = 0;
+#endif
 
         for (size_t i = 0; i < n; i++) {
 

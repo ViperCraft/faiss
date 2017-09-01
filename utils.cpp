@@ -23,8 +23,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <omp.h>
-
+#ifdef _OPENMP
+#   include <omp.h>
+#endif
 
 #include <algorithm>
 #include <vector>
@@ -1377,8 +1378,13 @@ int km_update_centroids (const float * x,
 
 #pragma omp parallel
     {
+#ifdef _OPENMP
         int nt = omp_get_num_threads();
         int rank = omp_get_thread_num();
+#else
+        int nt = 1;
+        int rank = 0;
+#endif
         // this thread is taking care of centroids c0:c1
         size_t c0 = (k * rank) / nt;
         size_t c1 = (k * (rank + 1)) / nt;
@@ -1751,7 +1757,11 @@ void fvec_argsort_parallel (size_t n, const float *vals,
     // 2 result tables, during merging, flip between them
     size_t *permB = perm2, *permA = perm;
 
+#ifdef _OPENMP
     int nt = omp_get_max_threads();
+#else
+    int nt = 1;
+#endif
     { // prepare correct permutation so that the result ends in perm
       // at final iteration
         int nseg = nt;
@@ -1777,8 +1787,10 @@ void fvec_argsort_parallel (size_t n, const float *vals,
         std::sort (permA + seg.i0, permA + seg.i1, comp);
         segs[t] = seg;
     }
+#ifdef _OPENMP
     int prev_nested = omp_get_nested();
     omp_set_nested(1);
+#endif
 
     int nseg = nt;
     while (nseg > 1) {
@@ -1805,7 +1817,9 @@ void fvec_argsort_parallel (size_t n, const float *vals,
         std::swap (permA, permB);
     }
     assert (permA == perm);
+#ifdef _OPENMP
     omp_set_nested(prev_nested);
+#endif
     delete [] perm2;
 }
 

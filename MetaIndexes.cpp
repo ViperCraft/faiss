@@ -14,6 +14,7 @@
 #include <pthread.h>
 
 #include <cstdio>
+#include <stdexcept>
 
 #include "FaissAssert.h"
 #include "Heap.h"
