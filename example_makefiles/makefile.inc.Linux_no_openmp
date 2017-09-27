@@ -9,7 +9,7 @@
 # tested on CentOS 7, Ubuntu 16 and Ubuntu 14, see below to adjust flags to distribution.
 
 CFLAGS=-fPIC -m64 -Wall -g -O3 -msse4 -mpopcnt -fopenmp -Wno-sign-compare -std=c++11
-LDFLAGS=-g -fPIC
+LDFLAGS=-g -fPIC -lpthread -lm
 
 # common linux flags
 SHAREDEXT=so
