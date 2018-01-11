@@ -14,7 +14,10 @@
 #include <cstring>
 #include <cstdio>
 #include <cmath>
-#include <omp.h>
+
+#ifdef _OPENMP
+#   include <omp.h>
+#endif
 
 #include <unordered_set>
 #include <queue>
@@ -343,7 +346,9 @@ void add_links_starting_from(HNSW & hnsw,
                              storage_idx_t nearest,
                              float d_nearest,
                              int level,
+#ifdef _OPENMP
                              omp_lock_t * locks,
+#endif
                              VisitedTable &vt)
 {
 
@@ -360,10 +365,13 @@ void add_links_starting_from(HNSW & hnsw,
 
     while (!link_targets.empty()) {
         int other_id = link_targets.top().id;
-
+#ifdef _OPENMP
         omp_set_lock(&locks[other_id]);
+#endif
         add_link(hnsw, ptdis, other_id, pt_id, level);
+#ifdef _OPENMP
         omp_unset_lock(&locks[other_id]);
+#endif
 
         add_link(hnsw, ptdis, pt_id, other_id, level);
 
@@ -656,7 +664,9 @@ void HNSWStats::reset ()
 
 void HNSW::add_with_locks(
       DistanceComputer & ptdis, int pt_level, int pt_id,
+#ifdef _OPENMP 
       std::vector<omp_lock_t> & locks,
+#endif
       VisitedTable &vt)
 {
     //  greedy search on upper levels
@@ -675,8 +685,9 @@ void HNSW::add_with_locks(
     if (nearest < 0) {
         return;
     }
-
+#ifdef _OPENMP
     omp_set_lock(&locks[pt_id]);
+#endif
 
     int level = max_level; // level at which we start adding neighbors
     float d_nearest = ptdis(nearest);
@@ -686,11 +697,15 @@ void HNSW::add_with_locks(
     }
 
     for(; level >= 0; level--) {
-        add_links_starting_from(*this, ptdis, pt_id, nearest, d_nearest,
-                                level, locks.data(), vt);
+        add_links_starting_from(*this, ptdis, pt_id, nearest, d_nearest, level, 
+#ifdef _OPENMP
+                                locks.data(), 
+#endif
+                                vt);
     }
-
+#ifdef _OPENMP
     omp_unset_lock(&locks[pt_id]);
+#endif
 
     if (pt_level > max_level) {
         max_level = pt_level;
@@ -820,9 +835,11 @@ void hnsw_add_vertices(IndexHNSW &index_hnsw,
         printf("  max_level = %d\n", max_level);
     }
 
+#ifdef _OPENMP
     std::vector<omp_lock_t> locks(ntotal);
     for(int i = 0; i < ntotal; i++)
         omp_init_lock(&locks[i]);
+#endif
 
     // add vectors from highest to lowest level
     std::vector<int> hist;
@@ -876,7 +893,11 @@ void hnsw_add_vertices(IndexHNSW &index_hnsw,
 
                 DistanceComputer *dis = index_hnsw.get_distance_computer();
                 ScopeDeleter1<DistanceComputer> del(dis);
-                int prev_display = verbose && omp_get_thread_num() == 0 ? 0 : -1;
+                int prev_display = verbose 
+#ifdef _OPENMP
+                    && omp_get_thread_num() == 0 
+#endif
+                    ? 0 : -1;
 
 #pragma omp  for schedule(dynamic)
                 for (int i = i0; i < i1; i++) {
@@ -884,7 +905,10 @@ void hnsw_add_vertices(IndexHNSW &index_hnsw,
                     dis->set_query (x + (pt_id - n0) * dis->d);
 
                     hnsw.add_with_locks (
-                           *dis, pt_level, pt_id, locks,
+                           *dis, pt_level, pt_id, 
+#ifdef _OPENMP
+                           locks,
+#endif
                            vt);
 
                     if (prev_display >= 0 && i - i0 > prev_display + 10000) {
@@ -901,8 +925,10 @@ void hnsw_add_vertices(IndexHNSW &index_hnsw,
     if (verbose)
         printf("Done in %.3f ms\n", getmillisecs() - t0);
 
+#ifdef _OPENMP
     for(int i = 0; i < ntotal; i++)
         omp_destroy_lock(&locks[i]);
+#endif
 
 }
 
@@ -1202,9 +1228,11 @@ void IndexHNSW::init_level_0_from_entry_points(
           const storage_idx_t *nearests)
 {
 
+#ifdef _OPENMP
     std::vector<omp_lock_t> locks(ntotal);
     for(int i = 0; i < ntotal; i++)
         omp_init_lock(&locks[i]);
+#endif
 
 #pragma omp parallel
     {
@@ -1221,8 +1249,11 @@ void IndexHNSW::init_level_0_from_entry_points(
             storage->reconstruct (pt_id, vec);
             dis->set_query (vec);
 
-            add_links_starting_from(hnsw, *dis, pt_id, nearest, (*dis)(nearest),
-                                    0, locks.data(), vt);
+            add_links_starting_from(hnsw, *dis, pt_id, nearest, (*dis)(nearest), 0, 
+#ifdef _OPENMP
+                                    locks.data(), 
+#endif
+                                    vt);
 
             if (verbose && i % 10000 == 0) {
                 printf("  %d / %d\r", i, n);
@@ -1233,9 +1264,10 @@ void IndexHNSW::init_level_0_from_entry_points(
     if (verbose) {
         printf("\n");
     }
-
+#ifdef _OPENMP
     for(int i = 0; i < ntotal; i++)
         omp_destroy_lock(&locks[i]);
+#endif
 }
 
 void IndexHNSW::reorder_links()

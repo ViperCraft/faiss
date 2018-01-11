@@ -9,7 +9,11 @@
 #pragma once
 
 #include <vector>
-#include <omp.h>
+
+
+#ifdef _OPENMP
+#   include <omp.h>
+#endif
 
 #include "IndexFlat.h"
 #include "IndexPQ.h"
@@ -137,7 +141,9 @@ struct HNSW {
     /** add point pt_id on all levels <= pt_level and build the link
      * structure for them. */
     void add_with_locks(DistanceComputer & ptdis, int pt_level, int pt_id,
+#ifdef _OPENMP
                         std::vector<omp_lock_t> & locks,
+#endif
                         VisitedTable &vt);
 
 
