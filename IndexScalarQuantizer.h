@@ -74,7 +74,24 @@ struct ScalarQuantizer {
                         size_t n) const ;
 
     /// decode a vector from a given code (or n vectors if third argument)
-     void decode (const uint8_t *code, float *x, size_t n) const;
+    void decode (const uint8_t *code, float *x, size_t n) const;
+
+    // fast, non thread-safe way of computing vector-to-code and
+    // code-to-code distances.
+    struct DistanceComputer {
+
+        /// vector-to-code distance computation
+        virtual float compute_distance (const float *x,
+                                        const uint8_t *code) = 0;
+
+        /// code-to-code distance computation
+        virtual float compute_code_distance (const uint8_t *code1,
+                                             const uint8_t *code2) = 0;
+        virtual ~DistanceComputer () {}
+    };
+
+    DistanceComputer *get_distance_computer (MetricType metric = METRIC_L2)
+        const;
 
 };
 
@@ -126,13 +143,8 @@ struct IndexScalarQuantizer: Index {
  * distances are computed.
  */
 
-struct IndexIVFScalarQuantizer:IndexIVF {
+struct IndexIVFScalarQuantizer: IndexIVF {
     ScalarQuantizer sq;
-
-    size_t code_size;
-
-    /// inverted list codes.
-    std::vector<std::vector<uint8_t> > codes;
 
     IndexIVFScalarQuantizer(Index *quantizer, size_t d, size_t nlist,
                             ScalarQuantizer::QuantizerType qtype,
@@ -144,14 +156,15 @@ struct IndexIVFScalarQuantizer:IndexIVF {
 
     void add_with_ids(idx_t n, const float* x, const long* xids) override;
 
-    void search(
-        idx_t n,
-        const float* x,
-        idx_t k,
-        float* distances,
-        idx_t* labels) const override;
+    void search_preassigned (idx_t n, const float *x, idx_t k,
+                             const idx_t *assign,
+                             const float *centroid_dis,
+                             float *distances, idx_t *labels,
+                             bool store_pairs) const override;
 
-    void merge_from_residuals(IndexIVF& other) override;
+    void reconstruct_from_offset (long list_no, long offset,
+                                  float* recons) const override;
+
 };
 
 

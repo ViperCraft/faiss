@@ -50,11 +50,9 @@ IndexIVFPQ::IndexIVFPQ (Index * quantizer, size_t d, size_t nlist,
     FAISS_THROW_IF_NOT (nbits_per_idx <= 8);
     code_size = pq.code_size;
     is_trained = false;
-    codes.resize (nlist);
     by_residual = true;
     use_precomputed_table = 0;
     scan_table_threshold = 0;
-    max_codes = 0; // means unlimited
 
     polysemous_training = nullptr;
     do_polysemous_training = false;
@@ -102,6 +100,8 @@ void IndexIVFPQ::train_residual_o (idx_t n, const float *x, float *residuals_2)
     pq.train (n, trainset);
 
     if (do_polysemous_training) {
+        if (verbose)
+            printf("doing polysemous training for PQ\n");
         PolysemousTraining default_pt;
         PolysemousTraining *pt = polysemous_training;
         if (!pt) pt = &default_pt;
@@ -191,6 +191,23 @@ void IndexIVFPQ::add_with_ids (idx_t n, const float * x, const long *xids)
 void IndexIVFPQ::add_core_o (idx_t n, const float * x, const long *xids,
                              float *residuals_2, const long *precomputed_idx)
 {
+
+    idx_t bs = 32768;
+    if (n > bs) {
+        for (idx_t i0 = 0; i0 < n; i0 += bs) {
+            idx_t i1 = std::min(i0 + bs, n);
+            if (verbose) {
+                printf("IndexIVFPQ::add_core_o: adding %ld:%ld / %ld\n",
+                       i0, i1, n);
+            }
+            add_core_o (i1 - i0, x + i0 * d,
+                        xids ? xids + i0 : nullptr,
+                        residuals_2 ? residuals_2 + i0 * d : nullptr,
+                        precomputed_idx ? precomputed_idx + i0 : nullptr);
+        }
+        return;
+    }
+
     FAISS_THROW_IF_NOT (is_trained);
     double t0 = getmillisecs ();
     const long * idx;
@@ -270,89 +287,25 @@ void IndexIVFPQ::add_core_o (idx_t n, const float * x, const long *xids,
     ntotal += n;
 }
 
-void IndexIVFPQ::reconstruct_n (idx_t i0, idx_t ni, float *recons) const
+
+void IndexIVFPQ::reconstruct_from_offset (long list_no, long offset,
+                                          float* recons) const
 {
-    FAISS_THROW_IF_NOT (ni == 0 || (i0 >= 0 && i0 + ni <= ntotal));
+    const uint8_t* code = &(codes[list_no][offset * code_size]);
 
-    std::vector<float> centroid (d);
+    if (by_residual) {
+      std::vector<float> centroid(d);
+      quantizer->reconstruct (list_no, centroid.data());
 
-    for (int key = 0; key < nlist; key++) {
-        const std::vector<long> & idlist = ids[key];
-        const uint8_t * code_line = codes[key].data();
-
-        for (long ofs = 0; ofs < idlist.size(); ofs++) {
-            long id = idlist[ofs];
-            if (!(id >= i0 && id < i0 + ni)) continue;
-            float *r = recons + d * (id - i0);
-            if (by_residual) {
-                quantizer->reconstruct (key, centroid.data());
-                pq.decode (code_line + ofs * pq.code_size, r);
-                for (int j = 0; j < d; j++) {
-                    r[j] += centroid[j];
-                }
-            }
-            else {
-                pq.decode (code_line + ofs * pq.code_size, r);
-            }
-        }
+      pq.decode (code, recons);
+      for (int i = 0; i < d; ++i) {
+        recons[i] += centroid[i];
+      }
+    } else {
+      pq.decode (code, recons);
     }
 }
 
-
-void IndexIVFPQ::reconstruct (idx_t key, float * recons) const
-{
-    FAISS_THROW_IF_NOT (direct_map.size() == ntotal);
-    int list_no = direct_map[key] >> 32;
-    int ofs = direct_map[key] & 0xffffffff;
-
-    quantizer->reconstruct (list_no, recons);
-    const uint8_t * code = &(codes[list_no][ofs * pq.code_size]);
-
-    for (size_t m = 0; m < pq.M; m++) {
-        float * out = recons + m * pq.dsub;
-        const float * cent = pq.get_centroids (m, code[m]);
-        for (size_t i = 0; i < pq.dsub; i++) {
-            out[i] += cent[i];
-        }
-    }
-}
-
-
-
-void IndexIVFPQ::merge_from_residuals (IndexIVF &other_in)
-{
-    IndexIVFPQ &other = dynamic_cast<IndexIVFPQ &> (other_in);
-    for (int i = 0; i < nlist; i++) {
-        codes[i].insert (codes[i].end(),
-                         other.codes[i].begin(), other.codes[i].end());
-        other.codes[i].clear();
-    }
-}
-
-void IndexIVFPQ::copy_subset_to (IndexIVFPQ & other, int subset_type,
-                     long a1, long a2) const
-{
-    FAISS_THROW_IF_NOT (nlist == other.nlist);
-    FAISS_THROW_IF_NOT (!other.maintain_direct_map);
-    size_t code_size = pq.code_size;
-    for (long list_no = 0; list_no < nlist; list_no++) {
-        const std::vector<idx_t> & ids_in = ids[list_no];
-        std::vector<idx_t> & ids_out = other.ids[list_no];
-        const std::vector<uint8_t> & codes_in = codes[list_no];
-        std::vector<uint8_t> & codes_out = other.codes[list_no];
-
-        for (long i = 0; i < ids_in.size(); i++) {
-            idx_t id = ids_in[i];
-            if (subset_type == 0 && a1 <= id && id < a2) {
-                ids_out.push_back (id);
-                codes_out.insert (codes_out.end(),
-                                  codes_in.begin() + i * code_size,
-                                  codes_in.begin() + (i + 1) * code_size);
-                other.ntotal++;
-            }
-        }
-    }
-}
 
 
 
@@ -390,12 +343,10 @@ void IndexIVFPQ::copy_subset_to (IndexIVFPQ & other, int subset_type,
 
 void IndexIVFPQ::precompute_table ()
 {
-
-
     if (use_precomputed_table == 0) { // then choose the type of table
         if (quantizer->metric_type == METRIC_INNER_PRODUCT) {
             fprintf(stderr, "IndexIVFPQ::precompute_table: WARN precomputed "
-                    "tables not supported for inner product quantizers\n");
+                    "tables not needed for inner product quantizers\n");
             return;
         }
         const MultiIndexQuantizer *miq =
@@ -406,6 +357,10 @@ void IndexIVFPQ::precompute_table ()
             use_precomputed_table = 1;
     } // otherwise assume user has set appropriate flag on input
 
+    if (verbose) {
+        printf ("precomputing IVFPQ tables type %d\n",
+                use_precomputed_table);
+    }
 
     // squared norms of the PQ centroids
     std::vector<float> r_norms (pq.M * pq.ksub, NAN);
@@ -960,15 +915,17 @@ void IndexIVFPQStats::reset () {
 }
 
 
-void IndexIVFPQ::search_knn_with_key (
-    size_t nx,
-    const float * qx,
-    const long * keys,
-    const float * coarse_dis,
-    float_maxheap_array_t * res,
-    bool store_pairs) const
+
+void IndexIVFPQ::search_preassigned (idx_t nx, const float *qx, idx_t k,
+                                     const idx_t *keys,
+                                     const float *coarse_dis,
+                                     float *distances, idx_t *labels,
+                                     bool store_pairs) const
 {
-    const size_t k = res->k;
+    float_maxheap_array_t res = {
+        size_t(nx), size_t(k),
+        labels, distances
+    };
 
 #pragma omp parallel
     {
@@ -984,8 +941,8 @@ void IndexIVFPQ::search_knn_with_key (
             const float *qi = qx + i * d;
             const long * keysi = keys + i * nprobe;
             const float *coarse_dis_i = coarse_dis + i * nprobe;
-            float * heap_sim = res->get_val (i);
-            long * heap_ids = res->get_ids (i);
+            float * heap_sim = res.get_val (i);
+            long * heap_ids = res.get_ids (i);
 
             uint64_t t0;
             TIC;
@@ -1004,10 +961,11 @@ void IndexIVFPQ::search_knn_with_key (
                     // not enough centroids for multiprobe
                     continue;
                 }
-                if (key >= (long) nlist) {
-                    fprintf (stderr, "Invalid key=%ld nlist=%ld\n", key, nlist);
-                    throw;
-                }
+                FAISS_THROW_IF_NOT_FMT (
+                    key < (long) nlist,
+                    "Invalid key=%ld  at ik=%ld nlist=%ld\n",
+                    key, ik, nlist);
+
                 size_t list_size = ids[key].size();
                 stats_nlist ++;
                 nscan += list_size;
@@ -1059,67 +1017,6 @@ void IndexIVFPQ::search_knn_with_key (
 }
 
 
-void IndexIVFPQ::search (idx_t n, const float *x, idx_t k,
-                              float *distances, idx_t *labels) const
-{
-    long * idx = new long [n * nprobe];
-    ScopeDeleter<long> del (idx);
-    float * coarse_dis = new float [n * nprobe];
-    ScopeDeleter<float> del2 (coarse_dis);
-
-    uint64_t t0;
-    TIC;
-    quantizer->search (n, x, nprobe, coarse_dis, idx);
-    indexIVFPQ_stats.assign_cycles += TOC;
-
-    TIC;
-    float_maxheap_array_t res = { size_t(n), size_t(k), labels, distances};
-
-    search_knn_with_key (n, x, idx, coarse_dis, &res);
-    indexIVFPQ_stats.search_cycles += TOC;
-}
-
-
-void IndexIVFPQ::reset()
-{
-    IndexIVF::reset();
-    for (size_t key = 0; key < nlist; key++) {
-        codes[key].clear();
-    }
-}
-
-long IndexIVFPQ::remove_ids (const IDSelector & sel)
-{
-    FAISS_THROW_IF_NOT_MSG (!maintain_direct_map,
-                    "direct map remove not implemented");
-    long nremove = 0;
-#pragma omp parallel for reduction(+: nremove)
-    for (long i = 0; i < nlist; i++) {
-        std::vector<idx_t> & idsi = ids[i];
-        uint8_t * codesi = codes[i].data();
-
-        long l = idsi.size(), j = 0;
-        while (j < l) {
-            if (sel.is_member (idsi[j])) {
-                l--;
-                idsi [j] = idsi [l];
-                memmove (codesi + j * code_size,
-                         codesi + l * code_size, code_size);
-            } else {
-                j++;
-            }
-        }
-        if (l < idsi.size()) {
-            nremove += idsi.size() - l;
-            idsi.resize (l);
-            codes[i].resize (l * code_size);
-        }
-    }
-    ntotal -= nremove;
-    return nremove;
-}
-
-
 IndexIVFPQ::IndexIVFPQ ()
 {
     // initialize some runtime values
@@ -1127,7 +1024,6 @@ IndexIVFPQ::IndexIVFPQ ()
     scan_table_threshold = 0;
     do_polysemous_training = false;
     polysemous_ht = 0;
-    max_codes = 0;
     polysemous_training = nullptr;
 }
 
@@ -1253,31 +1149,24 @@ void IndexIVFPQR::add_core (idx_t n, const float *x, const long *xids,
 }
 
 
-void IndexIVFPQR::search (
-            idx_t n, const float *x, idx_t k,
-            float *distances, idx_t *labels) const
+void IndexIVFPQR::search_preassigned (idx_t n, const float *x, idx_t k,
+                                      const idx_t *idx,
+                                      const float *L1_dis,
+                                      float *distances, idx_t *labels,
+                                      bool store_pairs) const
 {
-    FAISS_THROW_IF_NOT (is_trained);
-    long * idx = new long [n * nprobe];
-    ScopeDeleter<long> del (idx);
-    float * L1_dis = new float [n * nprobe];
-    ScopeDeleter<float> del2 (L1_dis);
     uint64_t t0;
-    TIC;
-    quantizer->search (n, x, nprobe, L1_dis, idx);
-    indexIVFPQ_stats.assign_cycles += TOC;
-
     TIC;
     size_t k_coarse = long(k * k_factor);
     idx_t *coarse_labels = new idx_t [k_coarse * n];
-    ScopeDeleter<idx_t> del3 (coarse_labels);
+    ScopeDeleter<idx_t> del1 (coarse_labels);
     { // query with quantizer levels 1 and 2.
         float *coarse_distances = new float [k_coarse * n];
         ScopeDeleter<float> del(coarse_distances);
 
-        faiss::float_maxheap_array_t res_coarse = {
-            size_t(n), k_coarse, coarse_labels, coarse_distances};
-        search_knn_with_key (n, x, idx, L1_dis, &res_coarse, true);
+        IndexIVFPQ::search_preassigned (n, x, k_coarse,
+                            idx, L1_dis, coarse_distances, coarse_labels,
+                            true);
     }
 
 
@@ -1331,7 +1220,8 @@ void IndexIVFPQR::search (
 
                 if (dis < heap_sim[0]) {
                     maxheap_pop (k, heap_sim, heap_ids);
-                    maxheap_push (k, heap_sim, heap_ids, dis, id);
+                    long id_or_pair = store_pairs ? sl : id;
+                    maxheap_push (k, heap_sim, heap_ids, dis, id_or_pair);
                 }
                 n_refine ++;
             }
@@ -1342,36 +1232,238 @@ void IndexIVFPQR::search (
     indexIVFPQ_stats.refine_cycles += TOC;
 }
 
-void IndexIVFPQR::reconstruct_n (idx_t i0, idx_t ni, float *recons) const
+void IndexIVFPQR::reconstruct_from_offset (long list_no, long offset,
+                                           float* recons) const
 {
-    std::vector<float> r3 (d);
+    IndexIVFPQ::reconstruct_from_offset (list_no, offset, recons);
 
-    IndexIVFPQ::reconstruct_n (i0, ni, recons);
+    idx_t id = ids[list_no][offset];
+    assert (0 <= id && id < ntotal);
 
-    for (idx_t i = i0; i < i0 + ni; i++) {
-        float *r = recons + i * d;
-        refine_pq.decode (&refine_codes [i * refine_pq.code_size], r3.data());
-
-        for (int j = 0; j < d; j++)
-            r[j] += r3[j];
-
+    std::vector<float> r3(d);
+    refine_pq.decode (&refine_codes [id * refine_pq.code_size], r3.data());
+    for (int i = 0; i < d; ++i) {
+      recons[i] += r3[i];
     }
-
 }
 
-void IndexIVFPQR::merge_from_residuals (IndexIVF &other_in)
+void IndexIVFPQR::merge_from (IndexIVF &other_in, idx_t add_id)
 {
-    IndexIVFPQR &other = dynamic_cast<IndexIVFPQR &> (other_in);
-    IndexIVFPQ::merge_from_residuals (other);
+    IndexIVFPQR *other = dynamic_cast<IndexIVFPQR *> (&other_in);
+    FAISS_THROW_IF_NOT(other);
+
+    IndexIVF::merge_from (other_in, add_id);
+
     refine_codes.insert (refine_codes.end(),
-                         other.refine_codes.begin(), other.refine_codes.end());
-    other.refine_codes.clear();
+                         other->refine_codes.begin(),
+                         other->refine_codes.end());
+    other->refine_codes.clear();
 }
 
 long IndexIVFPQR::remove_ids(const IDSelector& /*sel*/) {
   FAISS_THROW_MSG("not implemented");
   return 0;
 }
+
+/*************************************
+ * Index2Layer implementation
+ *************************************/
+
+
+Index2Layer::Index2Layer (Index * quantizer, size_t nlist,
+                          int M,
+                          MetricType metric):
+    Index (quantizer->d, metric),
+    q1 (quantizer, nlist),
+    pq (quantizer->d, M, 8)
+{
+    is_trained = false;
+    for (int nbyte = 0; nbyte < 7; nbyte++) {
+        if ((1L << (8 * nbyte)) >= nlist) {
+            code_size_1 = nbyte;
+            break;
+        }
+    }
+    code_size_2 = pq.code_size;
+    code_size = code_size_1 + code_size_2;
+}
+
+Index2Layer::Index2Layer ()
+{
+    code_size = code_size_1 = code_size_2 = 0;
+}
+
+Index2Layer::~Index2Layer ()
+{}
+
+void Index2Layer::train(idx_t n, const float* x)
+{
+    if (verbose) {
+        printf ("training level-1 quantizer %ld vectors in %dD\n",
+                n, d);
+    }
+
+    q1.train_q1 (n, x, verbose, metric_type);
+
+    if (verbose) {
+        printf("computing residuals\n");
+    }
+
+    const float * x_in = x;
+
+    x = fvecs_maybe_subsample (
+         d, (size_t*)&n, pq.cp.max_points_per_centroid * pq.ksub,
+         x, verbose, pq.cp.seed);
+
+    ScopeDeleter<float> del_x (x_in == x ? nullptr : x);
+
+    std::vector<idx_t> assign(n); // assignement to coarse centroids
+    q1.quantizer->assign (n, x, assign.data());
+    std::vector<float> residuals(n * d);
+    for (idx_t i = 0; i < n; i++) {
+        q1.quantizer->compute_residual (
+           x + i * d, residuals.data() + i * d, assign[i]);
+    }
+
+    if (verbose)
+        printf ("training %zdx%zd product quantizer on %ld vectors in %dD\n",
+                pq.M, pq.ksub, n, d);
+    pq.verbose = verbose;
+    pq.train (n, residuals.data());
+
+    is_trained = true;
+}
+
+void Index2Layer::add(idx_t n, const float* x)
+{
+    idx_t bs = 32768;
+    if (n > bs) {
+        for (idx_t i0 = 0; i0 < n; i0 += bs) {
+            idx_t i1 = std::min(i0 + bs, n);
+            if (verbose) {
+                printf("Index2Layer::add: adding %ld:%ld / %ld\n",
+                       i0, i1, n);
+            }
+            add (i1 - i0, x + i0 * d);
+        }
+        return;
+    }
+
+    std::vector<idx_t> codes1 (n);
+    q1.quantizer->assign (n, x, codes1.data());
+    std::vector<float> residuals(n * d);
+    for (idx_t i = 0; i < n; i++) {
+        q1.quantizer->compute_residual (
+            x + i * d, residuals.data() + i * d, codes1[i]);
+    }
+    std::vector<uint8_t> codes2 (n * code_size_2);
+
+    pq.compute_codes (residuals.data(), codes2.data(), n);
+
+    codes.resize ((ntotal + n) * code_size);
+    uint8_t *wp = &codes[ntotal * code_size];
+
+    {
+        int i = 0x11223344;
+        const char *ip = (char*)&i;
+        FAISS_THROW_IF_NOT_MSG (ip[0] == 0x44,
+                                "works only on a little-endian CPU");
+    }
+
+    // copy to output table
+    for (idx_t i = 0; i < n; i++) {
+        memcpy (wp, &codes1[i], code_size_1);
+        wp += code_size_1;
+        memcpy (wp, &codes2[i * code_size_2], code_size_2);
+        wp += code_size_2;
+    }
+
+    ntotal += n;
+
+}
+
+void Index2Layer::search(
+        idx_t n,
+        const float* x,
+        idx_t k,
+        float* distances,
+        idx_t* labels) const
+{
+    FAISS_THROW_MSG ("not implemented");
+}
+
+
+void Index2Layer::reconstruct_n(idx_t i0, idx_t ni, float* recons) const
+{
+    float recons1[d];
+    FAISS_THROW_IF_NOT (i0 >= 0 && i0 + ni <= ntotal);
+    const uint8_t *rp = &codes[i0 * code_size];
+
+    for (idx_t i = 0; i < ni; i++) {
+        idx_t key = 0;
+        memcpy (&key, rp, code_size_1);
+        q1.quantizer->reconstruct (key, recons1);
+        rp += code_size_1;
+        pq.decode (rp, recons);
+        for (idx_t j = 0; j < d; j++) {
+            recons[j] += recons1[j];
+        }
+        rp += code_size_2;
+        recons += d;
+    }
+}
+
+void Index2Layer::transfer_to_IVFPQ (IndexIVFPQ & other) const
+{
+    FAISS_THROW_IF_NOT (other.nlist == q1.nlist);
+    FAISS_THROW_IF_NOT (other.code_size == code_size_2);
+    FAISS_THROW_IF_NOT (other.ntotal == 0);
+
+    const uint8_t *rp = codes.data();
+
+    for (idx_t i = 0; i < ntotal; i++) {
+        idx_t key = 0;
+        memcpy (&key, rp, code_size_1);
+        other.ids[key].push_back (i);
+        rp += code_size_1;
+        std::vector<uint8_t> & list = other.codes[key];
+        size_t len = list.size();
+        list.resize(len + code_size_2);
+        memcpy (&list[len], rp, code_size_2);
+        rp += code_size_2;
+    }
+
+    other.ntotal = ntotal;
+
+}
+
+
+
+void Index2Layer::reconstruct(idx_t key, float* recons) const
+{
+    reconstruct_n (key, 1, recons);
+}
+
+void Index2Layer::reset()
+{
+    ntotal = 0;
+    codes.clear ();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /*****************************************
  * IndexIVFPQCompact implementation
@@ -1479,15 +1571,18 @@ IndexIVFPQCompact::~IndexIVFPQCompact ()
 
 }
 
-void IndexIVFPQCompact::search_knn_with_key (
-    size_t nx,
-    const float * qx,
-    const long * keys,
-    const float * coarse_dis,
-    float_maxheap_array_t * res,
-    bool store_pairs) const
+
+
+void IndexIVFPQCompact::search_preassigned (idx_t nx, const float *qx, idx_t k,
+                                     const idx_t *keys,
+                                     const float *coarse_dis,
+                                     float *distances, idx_t *labels,
+                                     bool store_pairs) const
 {
-    const size_t k = res->k;
+    float_maxheap_array_t res = {
+        size_t(nx), size_t(k),
+        labels, distances
+    };
 
 #pragma omp parallel
     {
@@ -1503,8 +1598,8 @@ void IndexIVFPQCompact::search_knn_with_key (
             const float *qi = qx + i * d;
             const long * keysi = keys + i * nprobe;
             const float *coarse_dis_i = coarse_dis + i * nprobe;
-            float * heap_sim = res->get_val (i);
-            long * heap_ids = res->get_ids (i);
+            float * heap_sim = res.get_val (i);
+            long * heap_ids = res.get_ids (i);
 
             uint64_t t0;
             TIC;

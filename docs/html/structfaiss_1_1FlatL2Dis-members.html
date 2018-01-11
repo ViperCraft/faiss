@@ -82,18 +82,30 @@ var searchBox = new SearchBox("searchBox", "search",false,'Search');
 
 <div id="nav-path" class="navpath">
   <ul>
-<li class="navelem"><a class="el" href="namespacefaiss.html">faiss</a></li><li class="navelem"><b>gpu</b></li><li class="navelem"><a class="el" href="structfaiss_1_1gpu_1_1TensorInfoOffset_3_01T_00-1_01_4.html">TensorInfoOffset< T,-1 ></a></li>  </ul>
+<li class="navelem"><a class="el" href="namespacefaiss.html">faiss</a></li><li class="navelem"><a class="el" href="structfaiss_1_1FlatL2Dis.html">FlatL2Dis</a></li>  </ul>
 </div>
 </div><!-- top -->
 <div class="header">
   <div class="headertitle">
-<div class="title">faiss::gpu::TensorInfoOffset&lt; T,-1 &gt; Member List</div>  </div>
+<div class="title">faiss::FlatL2Dis Member List</div>  </div>
 </div><!--header-->
 <div class="contents">
 
-<p>This is the complete list of members for <a class="el" href="structfaiss_1_1gpu_1_1TensorInfoOffset_3_01T_00-1_01_4.html">faiss::gpu::TensorInfoOffset&lt; T,-1 &gt;</a>, including all inherited members.</p>
+<p>This is the complete list of members for <a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a>, including all inherited members.</p>
 <table class="directory">
-  <tr bgcolor="#f0f0f0" class="even"><td class="entry"><b>get</b>(const TensorInfo&lt; T &gt; &amp;info, unsigned int linearId) (defined in <a class="el" href="structfaiss_1_1gpu_1_1TensorInfoOffset_3_01T_00-1_01_4.html">faiss::gpu::TensorInfoOffset&lt; T,-1 &gt;</a>)</td><td class="entry"><a class="el" href="structfaiss_1_1gpu_1_1TensorInfoOffset_3_01T_00-1_01_4.html">faiss::gpu::TensorInfoOffset&lt; T,-1 &gt;</a></td><td class="entry"><span class="mlabel">inline</span><span class="mlabel">static</span></td></tr>
+  <tr bgcolor="#f0f0f0" class="even"><td class="entry"><b>b</b> (defined in <a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a>)</td><td class="entry"><a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a></td><td class="entry"></td></tr>
+  <tr bgcolor="#f0f0f0"><td class="entry"><b>d</b> (defined in <a class="el" href="structfaiss_1_1HNSW_1_1DistanceComputer.html">faiss::HNSW::DistanceComputer</a>)</td><td class="entry"><a class="el" href="structfaiss_1_1HNSW_1_1DistanceComputer.html">faiss::HNSW::DistanceComputer</a></td><td class="entry"></td></tr>
+  <tr bgcolor="#f0f0f0" class="even"><td class="entry"><b>FlatL2Dis</b>(const IndexFlatL2 &amp;storage, const float *q=nullptr) (defined in <a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a>)</td><td class="entry"><a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a></td><td class="entry"><span class="mlabel">inline</span></td></tr>
+  <tr bgcolor="#f0f0f0"><td class="entry"><b>nb</b> (defined in <a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a>)</td><td class="entry"><a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a></td><td class="entry"></td></tr>
+  <tr bgcolor="#f0f0f0" class="even"><td class="entry"><b>ndis</b> (defined in <a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a>)</td><td class="entry"><a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a></td><td class="entry"></td></tr>
+  <tr bgcolor="#f0f0f0"><td class="entry"><b>operator()</b>(storage_idx_t i) override (defined in <a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a>)</td><td class="entry"><a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a></td><td class="entry"><span class="mlabel">inline</span></td></tr>
+  <tr class="even"><td class="entry"><a class="el" href="structfaiss_1_1HNSW_1_1DistanceComputer.html#ac3394f35cb68cb901a5078920bd46a2f">faiss::HNSW::DistanceComputer::operator()</a>(storage_idx_t i)=0</td><td class="entry"><a class="el" href="structfaiss_1_1HNSW_1_1DistanceComputer.html">faiss::HNSW::DistanceComputer</a></td><td class="entry"><span class="mlabel">pure virtual</span></td></tr>
+  <tr bgcolor="#f0f0f0"><td class="entry"><b>q</b> (defined in <a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a>)</td><td class="entry"><a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a></td><td class="entry"></td></tr>
+  <tr class="even"><td class="entry"><a class="el" href="structfaiss_1_1FlatL2Dis.html#a9982374debdda67f3db647ffc0d3fc4b">set_query</a>(const float *x) override</td><td class="entry"><a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a></td><td class="entry"><span class="mlabel">inline</span><span class="mlabel">virtual</span></td></tr>
+  <tr bgcolor="#f0f0f0"><td class="entry"><b>symmetric_dis</b>(storage_idx_t i, storage_idx_t j) override (defined in <a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a>)</td><td class="entry"><a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a></td><td class="entry"><span class="mlabel">inline</span></td></tr>
+  <tr class="even"><td class="entry"><a class="el" href="structfaiss_1_1HNSW_1_1DistanceComputer.html#acaa9a112486a82fd2abfbcd250d058b2">faiss::HNSW::DistanceComputer::symmetric_dis</a>(storage_idx_t i, storage_idx_t j)=0</td><td class="entry"><a class="el" href="structfaiss_1_1HNSW_1_1DistanceComputer.html">faiss::HNSW::DistanceComputer</a></td><td class="entry"><span class="mlabel">pure virtual</span></td></tr>
+  <tr bgcolor="#f0f0f0"><td class="entry"><b>~DistanceComputer</b>() (defined in <a class="el" href="structfaiss_1_1HNSW_1_1DistanceComputer.html">faiss::HNSW::DistanceComputer</a>)</td><td class="entry"><a class="el" href="structfaiss_1_1HNSW_1_1DistanceComputer.html">faiss::HNSW::DistanceComputer</a></td><td class="entry"><span class="mlabel">inline</span><span class="mlabel">virtual</span></td></tr>
+  <tr bgcolor="#f0f0f0" class="even"><td class="entry"><b>~FlatL2Dis</b>() (defined in <a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a>)</td><td class="entry"><a class="el" href="structfaiss_1_1FlatL2Dis.html">faiss::FlatL2Dis</a></td><td class="entry"><span class="mlabel">inline</span><span class="mlabel">virtual</span></td></tr>
 </table></div><!-- contents -->
 <!-- start footer part -->
 <hr class="footer"/><address class="footer"><small>

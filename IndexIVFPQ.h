@@ -29,7 +29,6 @@ namespace faiss {
 struct IndexIVFPQ: IndexIVF {
     bool by_residual;              ///< Encode residual or plain vector?
     int use_precomputed_table;     ///< if by_residual, build precompute tables
-    size_t code_size;              ///< code size per vector in bytes
     ProductQuantizer pq;           ///< produces the codes
 
     bool do_polysemous_training;   ///< reorder PQ centroids after training?
@@ -37,10 +36,8 @@ struct IndexIVFPQ: IndexIVF {
 
     // search-time parameters
     size_t scan_table_threshold;   ///< use table computation or on-the-fly?
-    size_t max_codes;              ///< max nb of codes to visit to do a query
     int polysemous_ht;             ///< Hamming thresh for polysemous filtering
 
-    std::vector < std::vector<uint8_t> > codes; // binary codes, size nlist
 
     /// if use_precompute_table
     /// size nlist * pq.M * pq.ksub
@@ -60,33 +57,14 @@ struct IndexIVFPQ: IndexIVF {
                      const long *xids, float *residuals_2,
                      const long *precomputed_idx = nullptr);
 
-    void search(
-        idx_t n,
-        const float* x,
-        idx_t k,
-        float* distances,
-        idx_t* labels) const override;
-
-    void reset() override;
-
-    long remove_ids(const IDSelector& sel) override;
-
     /// trains the product quantizer
     void train_residual(idx_t n, const float* x) override;
 
     /// same as train_residual, also output 2nd level residuals
     void train_residual_o (idx_t n, const float *x, float *residuals_2);
 
-
-    /** Reconstruct a subset of the indexed vectors
-     *
-     * @param i0     first vector to reconstruct
-     * @param ni     nb of vectors to reconstruct
-     * @param recons output array of reconstructed vectors, size ni * d
-     */
-    void reconstruct_n(idx_t i0, idx_t ni, float* recons) const override;
-
-    void reconstruct(idx_t key, float* recons) const override;
+    void reconstruct_from_offset (long list_no, long offset,
+                                  float* recons) const override;
 
     /** Find exact duplicates in the dataset.
      *
@@ -121,41 +99,14 @@ struct IndexIVFPQ: IndexIVF {
     void decode_multiple (size_t n, const long *keys,
                           const uint8_t * xcodes, float * x) const;
 
-    /** search a set of vectors, that are pre-quantized by the IVF
-     *  quantizer. Fill in the corresponding heaps with the query
-     *  results.
-     *
-     * @param nx     nb of vectors to query
-     * @param qx     query vectors, size nx * d
-     * @param keys   coarse quantization indices, size nx * nprobe
-     * @param coarse_dis
-     *               distances to coarse centroids, size nx * nprobe
-     * @param res    heaps for all the results, gives the nprobe
-     * @param store_pairs store inv list index + inv list offset
-     *                     instead in upper/lower 32 bit of result,
-     *                     instead of ids (used for reranking).
-     */
-    virtual void search_knn_with_key (
-            size_t nx,
-            const float * qx,
-            const long * keys,
-            const float * coarse_dis,
-            float_maxheap_array_t* res,
-            bool store_pairs = false) const;
+    void search_preassigned (idx_t n, const float *x, idx_t k,
+                             const idx_t *assign,
+                             const float *centroid_dis,
+                             float *distances, idx_t *labels,
+                             bool store_pairs) const override;
 
     /// build precomputed table
     void precompute_table ();
-
-    /// used to implement merging
-    void merge_from_residuals(IndexIVF& other) override;
-
-    /** copy a subset of the entries index to the other index
-     *
-     * if subset_type == 0: copies ids in [a1, a2)
-     * if subset_type == 1: copies ids if id % a1 == a2
-     */
-    void copy_subset_to (IndexIVFPQ & other, int subset_type,
-                         long a1, long a2) const;
 
     IndexIVFPQ ();
 
@@ -163,7 +114,7 @@ struct IndexIVFPQ: IndexIVF {
 
 
 /// statistics are robust to internal threading, but not if
-/// IndexIVFPQ::search is called by multiple threads
+/// IndexIVFPQ::search_preassigned is called by multiple threads
 struct IndexIVFPQStats {
     size_t nq;       // nb of queries run
     size_t nlist;    // nb of inverted lists scanned
@@ -220,16 +171,17 @@ struct IndexIVFPQR: IndexIVFPQ {
     void add_core (idx_t n, const float *x, const long *xids,
                      const long *precomputed_idx = nullptr);
 
-    void reconstruct_n(idx_t i0, idx_t ni, float* recons) const override;
+    void reconstruct_from_offset (long list_no, long offset,
+                                  float* recons) const override;
 
-    void search(
-        idx_t n,
-        const float* x,
-        idx_t k,
-        float* distances,
-        idx_t* labels) const override;
+    void merge_from (IndexIVF &other, idx_t add_id) override;
 
-    void merge_from_residuals(IndexIVF& other) override;
+
+    void search_preassigned (idx_t n, const float *x, idx_t k,
+                             const idx_t *assign,
+                             const float *centroid_dis,
+                             float *distances, idx_t *labels,
+                             bool store_pairs) const override;
 
     IndexIVFPQR();
 };
@@ -261,13 +213,11 @@ struct IndexIVFPQCompact: IndexIVFPQ {
     char * mmap_buffer;
     long mmap_length;
 
-    void search_knn_with_key(
-        size_t nx,
-        const float* qx,
-        const long* keys,
-        const float* coarse_dis,
-        float_maxheap_array_t* res,
-        bool store_pairs = false) const override;
+    void search_preassigned (idx_t n, const float *x, idx_t k,
+                             const idx_t *assign,
+                             const float *centroid_dis,
+                             float *distances, idx_t *labels,
+                             bool store_pairs) const override;
 
     /// the three following functions will fail at runtime
     void add(idx_t, const float*) override;
@@ -277,6 +227,60 @@ struct IndexIVFPQCompact: IndexIVFPQ {
     ~IndexIVFPQCompact() override;
 
     IndexIVFPQCompact ();
+
+};
+
+
+/** Same as an IndexIVFPQ without the inverted lists: codes are stored sequentially
+ *
+ * The class is mainly inteded to store encoded vectors that can be
+ * accessed randomly, the search function is not implemented.
+ */
+struct Index2Layer: Index {
+    /// first level quantizer
+    Level1Quantizer q1;
+
+    /// second level quantizer is always a PQ
+    ProductQuantizer pq;
+
+    /// Codes. Size ntotal * code_size.
+    std::vector<uint8_t> codes;
+
+    /// size of the code for the first level (ceil(log8(q1.nlist)))
+    size_t code_size_1;
+
+    /// size of the code for the second level
+    size_t code_size_2;
+
+    /// code_size_1 + code_size_2
+    size_t code_size;
+
+    Index2Layer (Index * quantizer, size_t nlist,
+                 int M, MetricType metric = METRIC_L2);
+
+    Index2Layer ();
+    ~Index2Layer ();
+
+    void train(idx_t n, const float* x) override;
+
+    void add(idx_t n, const float* x) override;
+
+    /// not implemented
+    void search(
+        idx_t n,
+        const float* x,
+        idx_t k,
+        float* distances,
+        idx_t* labels) const override;
+
+    void reconstruct_n(idx_t i0, idx_t ni, float* recons) const override;
+
+    void reconstruct(idx_t key, float* recons) const override;
+
+    void reset() override;
+
+    /// transfer the flat codes to an IVFPQ index
+    void transfer_to_IVFPQ(IndexIVFPQ & other) const;
 
 };
 
